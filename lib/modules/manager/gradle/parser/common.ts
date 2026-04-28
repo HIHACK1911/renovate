@@ -1,13 +1,13 @@
-import type { lexer, parser } from 'good-enough-parser';
-import { query as q } from 'good-enough-parser';
-import { clone } from '../../../../util/clone';
-import { regEx } from '../../../../util/regex';
+import type { lexer, parser } from '@renovatebot/good-enough-parser';
+import { query as q } from '@renovatebot/good-enough-parser';
+import { clone } from '../../../../util/clone.ts';
+import { regEx } from '../../../../util/regex.ts';
 import type {
   Ctx,
   NonEmptyArray,
   PackageVariables,
   VariableData,
-} from '../types';
+} from '../types.ts';
 
 export const REGISTRY_URLS = {
   google: 'https://dl.google.com/android/maven2/',
@@ -210,6 +210,22 @@ export const qStringValueAsSymbol = q.str((ctx: Ctx, node: lexer.Token) => {
   return ctx;
 });
 
+// https://docs.gradle.org/current/javadoc/org/gradle/api/provider/Provider.html#get()
+export const qProviderValue = q
+  .tree({
+    maxDepth: 1,
+    type: 'wrapped-tree',
+    startsWith: '(',
+    endsWith: ')',
+    search: q.begin<Ctx>().end(),
+  })
+  .handler((ctx) => {
+    if (ctx.varTokens.length > 1 && ctx.varTokens.at(-1)?.value === 'get') {
+      ctx.varTokens.pop();
+    }
+    return ctx;
+  });
+
 // foo.bar["baz"] = "1.2.3"
 export const qVariableAssignmentIdentifier = q
   .sym(storeVarToken)
@@ -237,6 +253,7 @@ export const qVariableAccessIdentifier = q
     return ctx;
   })
   .join(qVariableAssignmentIdentifier)
+  .opt(qProviderValue)
   .handler(coalesceVariable)
   .handler((ctx) => {
     ctx.varTokens = [

@@ -1,6 +1,6 @@
 import semver from 'semver';
 import stable from 'semver-stable';
-import type { NewValueConfig, VersioningApi } from '../types';
+import type { NewValueConfig, VersioningApi } from '../types.ts';
 
 export const id = 'semver';
 export const displayName = 'Semantic';
@@ -26,7 +26,7 @@ const {
 // If this is left as an alias, inputs like "17.04.0" throw errors
 export const isVersion = (input: string): boolean => !!valid(input);
 
-export { isVersion as isValid, getSatisfyingVersion };
+export { getSatisfyingVersion, isVersion as isValid };
 
 function getNewValue({
   currentValue,

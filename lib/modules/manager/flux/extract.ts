@@ -1,40 +1,41 @@
 import { isString } from '@sindresorhus/is';
-import { logger } from '../../../logger';
-import { coerceArray } from '../../../util/array';
-import { readLocalFile } from '../../../util/fs';
-import { regEx } from '../../../util/regex';
-import { isHttpUrl } from '../../../util/url';
-import { parseYaml } from '../../../util/yaml';
-import { BitbucketTagsDatasource } from '../../datasource/bitbucket-tags';
-import { DockerDatasource } from '../../datasource/docker';
-import { GitRefsDatasource } from '../../datasource/git-refs';
-import { GitTagsDatasource } from '../../datasource/git-tags';
-import { GithubReleasesDatasource } from '../../datasource/github-releases';
-import { GithubTagsDatasource } from '../../datasource/github-tags';
-import { GitlabTagsDatasource } from '../../datasource/gitlab-tags';
-import { HelmDatasource } from '../../datasource/helm';
-import { getDep } from '../dockerfile/extract';
-import { findDependencies } from '../helm-values/extract';
-import { isOCIRegistry, removeOCIPrefix } from '../helmv3/oci';
-import { extractImage } from '../kustomize/extract';
+import { isMap, isPair, isScalar, parseAllDocuments } from 'yaml';
+import { logger } from '../../../logger/index.ts';
+import { coerceArray } from '../../../util/array.ts';
+import { readLocalFile } from '../../../util/fs/index.ts';
+import { regEx } from '../../../util/regex.ts';
+import { isHttpUrl } from '../../../util/url.ts';
+import { parseYaml } from '../../../util/yaml.ts';
+import { BitbucketTagsDatasource } from '../../datasource/bitbucket-tags/index.ts';
+import { DockerDatasource } from '../../datasource/docker/index.ts';
+import { GitRefsDatasource } from '../../datasource/git-refs/index.ts';
+import { GitTagsDatasource } from '../../datasource/git-tags/index.ts';
+import { GithubReleasesDatasource } from '../../datasource/github-releases/index.ts';
+import { GithubTagsDatasource } from '../../datasource/github-tags/index.ts';
+import { GitlabTagsDatasource } from '../../datasource/gitlab-tags/index.ts';
+import { HelmDatasource } from '../../datasource/helm/index.ts';
+import { getDep } from '../dockerfile/extract.ts';
+import { findDependencies } from '../helm-values/extract.ts';
+import { isOCIRegistry, removeOCIPrefix } from '../helmv3/oci.ts';
+import { extractImage } from '../kustomize/extract.ts';
 import type {
   ExtractConfig,
   PackageDependency,
   PackageFile,
   PackageFileContent,
-} from '../types';
+} from '../types.ts';
 import {
   collectHelmRepos,
   isSystemManifest,
   systemManifestHeaderRegex,
-} from './common';
-import { FluxResource, type HelmRepository } from './schema';
+} from './common.ts';
+import { FluxResource, type HelmRepository } from './schema.ts';
 import type {
   FluxManagerData,
   FluxManifest,
   ResourceFluxManifest,
   SystemFluxManifest,
-} from './types';
+} from './types.ts';
 
 function readManifest(
   content: string,
@@ -48,6 +49,7 @@ function readManifest(
     return {
       kind: 'system',
       file: packageFile,
+      content,
       version: versionMatch[1],
       components: versionMatch[2],
     };
@@ -56,6 +58,7 @@ function readManifest(
   return {
     kind: 'resource',
     file: packageFile,
+    content,
     resources: parseYaml(content, {
       customSchema: FluxResource,
       failureBehaviour: 'filter',
@@ -112,6 +115,7 @@ function resolveHelmRepository(
   dep: PackageDependency,
   matchingRepositories: HelmRepository[],
   registryAliases: Record<string, string> | undefined,
+  sourceRefName?: string,
 ): void {
   if (matchingRepositories.length) {
     dep.registryUrls = matchingRepositories
@@ -136,9 +140,28 @@ function resolveHelmRepository(
     if (!dep.registryUrls?.length) {
       delete dep.registryUrls;
     }
-  } else {
-    dep.skipReason = 'unknown-registry';
+    return;
   }
+
+  if (sourceRefName && registryAliases) {
+    const aliasUrl = registryAliases[sourceRefName];
+    if (aliasUrl) {
+      if (isOCIRegistry(aliasUrl)) {
+        // Treat alias value as an OCI registry URL
+        dep.datasource = DockerDatasource.id;
+        dep.packageName = getDep(
+          `${removeOCIPrefix(aliasUrl)}/${dep.depName}`,
+          false,
+          registryAliases,
+        ).packageName;
+      } else {
+        dep.registryUrls = [aliasUrl];
+      }
+      return;
+    }
+  }
+
+  dep.skipReason = 'unknown-registry';
 }
 
 function resolveSystemManifest(
@@ -156,10 +179,77 @@ function resolveSystemManifest(
   ];
 }
 
+function extractOCIRefRange(
+  content: string,
+  resourceName: string,
+): { replaceString: string; tagFirst: boolean } | null {
+  for (const doc of parseAllDocuments(content, { strict: false })) {
+    const docContents = doc.contents;
+    if (!isMap(docContents)) {
+      continue;
+    }
+    const kindNode = docContents.get('kind', true);
+    if (
+      !isScalar(kindNode) ||
+      (kindNode.value as unknown) !== 'OCIRepository'
+    ) {
+      continue;
+    }
+    const nameNode = docContents.getIn(['metadata', 'name'], true);
+    if (!isScalar(nameNode) || nameNode.value !== resourceName) {
+      continue;
+    }
+    const specNode = docContents.get('spec');
+    if (!isMap(specNode)) {
+      continue;
+    }
+    const refNode = specNode.get('ref');
+    if (!isMap(refNode)) {
+      continue;
+    }
+
+    let tagKeyRange: [number, number, number] | null = null;
+    let tagValueEnd: number | null = null;
+    let digestKeyRange: [number, number, number] | null = null;
+    let digestValueEnd: number | null = null;
+
+    for (const item of refNode.items) {
+      if (!isPair(item) || !isScalar(item.key)) {
+        continue;
+      }
+      if (item.key.value === 'tag' && isScalar(item.value)) {
+        tagKeyRange = item.key.range;
+        tagValueEnd = item.value.range[1];
+      } else if (item.key.value === 'digest' && isScalar(item.value)) {
+        digestKeyRange = item.key.range;
+        digestValueEnd = item.value.range[1];
+      }
+    }
+
+    if (
+      !tagKeyRange ||
+      tagValueEnd === null ||
+      !digestKeyRange ||
+      digestValueEnd === null
+    ) {
+      continue;
+    }
+
+    const tagFirst = tagKeyRange[0] < digestKeyRange[0];
+    const start = tagFirst ? tagKeyRange[0] : digestKeyRange[0];
+    const end = tagFirst ? digestValueEnd : tagValueEnd;
+
+    return { replaceString: content.slice(start, end), tagFirst };
+  }
+
+  return null;
+}
+
 function resolveResourceManifest(
   manifest: ResourceFluxManifest,
   helmRepositories: HelmRepository[],
   registryAliases: Record<string, string> | undefined,
+  content: string,
 ): PackageDependency[] {
   const deps: PackageDependency[] = [];
   for (const resource of manifest.resources) {
@@ -182,15 +272,20 @@ function resolveResourceManifest(
             dep.skipReason = 'local-chart';
             delete dep.datasource;
           } else {
+            const sourceRef = chartSpec.sourceRef;
             const matchingRepositories = helmRepositories.filter(
               (rep) =>
-                rep.kind === chartSpec.sourceRef?.kind &&
-                rep.metadata.name === chartSpec.sourceRef.name &&
+                rep.kind === sourceRef?.kind &&
+                rep.metadata.name === sourceRef.name &&
                 rep.metadata.namespace ===
-                  (chartSpec.sourceRef.namespace ??
-                    resource.metadata?.namespace),
+                  (sourceRef?.namespace ?? resource.metadata?.namespace),
             );
-            resolveHelmRepository(dep, matchingRepositories, registryAliases);
+            resolveHelmRepository(
+              dep,
+              matchingRepositories,
+              registryAliases,
+              sourceRef?.name,
+            );
           }
           deps.push(dep);
         } else {
@@ -222,13 +317,19 @@ function resolveResourceManifest(
           dep.currentValue = resource.spec.version;
           dep.datasource = HelmDatasource.id;
 
+          const sourceRef = resource.spec.sourceRef;
           const matchingRepositories = helmRepositories.filter(
             (rep) =>
-              rep.kind === resource.spec.sourceRef?.kind &&
-              rep.metadata.name === resource.spec.sourceRef.name &&
+              rep.kind === sourceRef?.kind &&
+              rep.metadata.name === sourceRef.name &&
               rep.metadata.namespace === resource.metadata?.namespace,
           );
-          resolveHelmRepository(dep, matchingRepositories, registryAliases);
+          resolveHelmRepository(
+            dep,
+            matchingRepositories,
+            registryAliases,
+            sourceRef?.name,
+          );
         } else {
           dep.skipReason = 'unsupported-datasource';
         }
@@ -261,18 +362,45 @@ function resolveResourceManifest(
       }
       case 'OCIRepository': {
         const container = removeOCIPrefix(resource.spec.url);
-        let dep = getDep(container, false, registryAliases);
-        if (resource.spec.ref?.digest) {
-          dep = getDep(
+        if (resource.spec.ref?.digest && resource.spec.ref?.tag) {
+          const combinedDep = getDep(
             `${container}@${resource.spec.ref.digest}`,
             false,
             registryAliases,
           );
-          if (resource.spec.ref?.tag) {
-            logger.debug('A digest and tag was found, ignoring tag');
+          // Set currentValue to the tag so the docker datasource can look up the image's new digest
+          combinedDep.currentValue = resource.spec.ref.tag;
+
+          const refRange = extractOCIRefRange(content, resource.metadata.name);
+          if (refRange) {
+            combinedDep.replaceString = refRange.replaceString;
+            if (refRange.tagFirst) {
+              combinedDep.autoReplaceStringTemplate = refRange.replaceString
+                .replace(resource.spec.ref.tag, '{{newValue}}')
+                .replace(resource.spec.ref.digest, '{{newDigest}}');
+            } else {
+              combinedDep.autoReplaceStringTemplate = refRange.replaceString
+                .replace(resource.spec.ref.digest, '{{newDigest}}')
+                .replace(resource.spec.ref.tag, '{{newValue}}');
+            }
+          } else {
+            logger.debug(
+              { file: manifest.file, name: resource.metadata.name },
+              'Could not find tag/digest nodes in content, skipping replacement',
+            );
+            combinedDep.skipReason = 'invalid-value';
           }
+
+          deps.push(combinedDep);
+        } else if (resource.spec.ref?.digest) {
+          const dep = getDep(
+            `${container}@${resource.spec.ref.digest}`,
+            false,
+            registryAliases,
+          );
+          deps.push(dep);
         } else if (resource.spec.ref?.tag) {
-          dep = getDep(
+          const dep = getDep(
             `${container}:${resource.spec.ref.tag}`,
             false,
             registryAliases,
@@ -280,10 +408,12 @@ function resolveResourceManifest(
           dep.autoReplaceStringTemplate =
             '{{#if newValue}}{{newValue}}{{/if}}{{#if newDigest}}@{{newDigest}}{{/if}}';
           dep.replaceString = resource.spec.ref.tag;
+          deps.push(dep);
         } else {
+          const dep = getDep(container, false, registryAliases);
           dep.skipReason = 'unversioned-reference';
+          deps.push(dep);
         }
-        deps.push(dep);
         break;
       }
 
@@ -320,6 +450,7 @@ export function extractPackageFile(
         manifest,
         helmRepositories,
         config?.registryAliases,
+        content,
       );
       break;
     }
@@ -336,10 +467,11 @@ export async function extractAllPackageFiles(
 
   for (const file of packageFiles) {
     const content = await readLocalFile(file, 'utf8');
-    // TODO #22198
-    const manifest = readManifest(content!, file);
-    if (manifest) {
-      manifests.push(manifest);
+    if (content) {
+      const manifest = readManifest(content, file);
+      if (manifest) {
+        manifests.push(manifest);
+      }
     }
   }
 
@@ -356,6 +488,7 @@ export async function extractAllPackageFiles(
           manifest,
           helmRepositories,
           config.registryAliases,
+          manifest.content,
         );
         break;
       }

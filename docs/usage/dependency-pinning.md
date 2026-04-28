@@ -80,7 +80,7 @@ So first of all, you can choose to read the changelogs and/or visually inspect t
 
 If you did not catch the fault before merging, you are still better off with a pinned version.
 If you discover something wrong in production, you can easily "roll back" commits in your development environment until you find which rollback fixes the problem.
-Then you can simply revert that commit (reversing `foobar@1.1.0` -> `foobar@1.2.0`) and push that to `main`.
+Then you can simply revert that commit (reversing `foobar@1.1.0` → `foobar@1.2.0`) and push that to `main`.
 When the next release of `foobar` comes out (e.g. `1.2.1`) you will be prompted with a new PR and hopefully inspect it carefully this time before merge!
 
 As you can see in the above, pinning dependencies makes your build more consistent and predictable as a developer.
@@ -123,7 +123,7 @@ With this approach, updates will be essentially "silent" - causing no notificati
 ### Scheduling
 
 Although it can feel satisfying to get updates "immediately" when they're available, the reality is that you usually don't _need_ updates so frequently.
-And worse still, npm package versions that are less than 24 hours [can be unpublished](https://blog.npmjs.org/post/141905368000/changes-to-npms-unpublish-policy), which would really break your build if you've pinned to a version that no longer exists.
+And worse still, npm package versions that are less than 72 hours [can be unpublished](https://docs.npmjs.com/policies/unpublish), which would really break your build if you've pinned to a version that no longer exists.
 
 So to reduce the interruptions of automated dependency updates, consider putting Renovate on a schedule, such as:
 

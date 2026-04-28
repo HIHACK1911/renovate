@@ -1,9 +1,10 @@
 import { mockDeep } from 'vitest-mock-extended';
-import { GlobalConfig } from '../config/global';
-import { GithubReleasesDatasource } from '../modules/datasource/github-releases';
-import { GithubTagsDatasource } from '../modules/datasource/github-tags';
-import type { PackageFileContent } from '../modules/manager/types';
-import * as memCache from '../util/cache/memory';
+import { hostRules, logger } from '~test/util.ts';
+import { GlobalConfig } from '../config/global.ts';
+import { GithubReleasesDatasource } from '../modules/datasource/github-releases/index.ts';
+import { GithubTagsDatasource } from '../modules/datasource/github-tags/index.ts';
+import type { PackageFileContent } from '../modules/manager/types.ts';
+import * as memCache from '../util/cache/memory/index.ts';
 import {
   checkGithubToken,
   findGithubToken,
@@ -11,10 +12,9 @@ import {
   isGithubPersonalAccessToken,
   isGithubServerToServerToken,
   takePersonalAccessTokenIfPossible,
-} from './check-token';
-import { hostRules, logger } from '~test/util';
+} from './check-token.ts';
 
-vi.mock('./host-rules', () => mockDeep());
+vi.mock('./host-rules.ts', () => mockDeep());
 
 describe('util/check-token', () => {
   describe('checkGithubToken', () => {
@@ -149,6 +149,13 @@ describe('util/check-token', () => {
   describe('isGithubServerToServerToken', () => {
     it('returns true when string is a github server to server token', () => {
       expect(isGithubServerToServerToken('ghs_XXXXXX')).toBeTrue();
+    });
+
+    // via https://github.blog/changelog/2026-04-24-notice-about-upcoming-new-format-for-github-app-installation-tokens/
+    it('returns true when string is a 2026-style GitHub Installation Access Token', () => {
+      expect(
+        isGithubServerToServerToken('ghs_0123456_eyJhbGciOiJSUzI1NiJ9'),
+      ).toBeTrue();
     });
 
     it('returns false when string is a github personal access token token', () => {

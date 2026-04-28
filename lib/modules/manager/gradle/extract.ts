@@ -1,25 +1,32 @@
 import upath from 'upath';
-import { logger } from '../../../logger';
-import { coerceArray } from '../../../util/array';
-import { getLocalFiles } from '../../../util/fs';
-import { regEx } from '../../../util/regex';
-import { MavenDatasource } from '../../datasource/maven';
-import gradleVersioning from '../../versioning/gradle';
-import type { ExtractConfig, PackageDependency, PackageFile } from '../types';
-import { parseCatalog } from './extract/catalog';
+import { logger } from '../../../logger/index.ts';
+import { coerceArray } from '../../../util/array.ts';
+import { getLocalFiles } from '../../../util/fs/index.ts';
+import { regEx } from '../../../util/regex.ts';
+import { MavenDatasource } from '../../datasource/maven/index.ts';
+import gradleVersioning from '../../versioning/gradle/index.ts';
+import type {
+  ExtractConfig,
+  PackageDependency,
+  PackageFile,
+} from '../types.ts';
+import {
+  parseCatalog,
+  unifyCatalogSharedVariableNames,
+} from './extract/catalog.ts';
 import {
   isGcvPropsFile,
   parseGcv,
   usesGcv,
-} from './extract/consistent-versions-plugin';
-import { parseGradle, parseKotlinSource, parseProps } from './parser';
-import { REGISTRY_URLS } from './parser/common';
+} from './extract/consistent-versions-plugin.ts';
+import { REGISTRY_URLS } from './parser/common.ts';
+import { parseGradle, parseKotlinSource, parseProps } from './parser.ts';
 import type {
   ContentDescriptorSpec,
   GradleManagerData,
   PackageRegistry,
   VariableRegistry,
-} from './types';
+} from './types.ts';
 import {
   getVars,
   isGradleScriptFile,
@@ -29,7 +36,8 @@ import {
   reorderFiles,
   toAbsolutePath,
   updateVars,
-} from './utils';
+  updateVarsFromDefaultCatalog,
+} from './utils.ts';
 
 const mavenDatasource = MavenDatasource.id;
 
@@ -187,7 +195,13 @@ async function parsePackageFiles(
         updateVars(varRegistry, packageFileDir, vars);
         extractedDeps.push(...deps);
       } else if (isTOMLFile(packageFile)) {
-        const deps = parseCatalog(packageFile, content);
+        const { vars, deps } = parseCatalog(packageFile, content);
+        updateVarsFromDefaultCatalog(
+          varRegistry,
+          packageFileDir,
+          packageFile,
+          vars,
+        );
         extractedDeps.push(...deps);
       } else if (
         isGcvPropsFile(packageFile) &&
@@ -249,6 +263,8 @@ export async function extractAllPackageFiles(
   if (!extractedDeps.length) {
     return null;
   }
+
+  unifyCatalogSharedVariableNames(extractedDeps);
 
   for (const dep of extractedDeps) {
     dep.fileReplacePosition = dep?.managerData?.fileReplacePosition; // #8224

@@ -1,17 +1,18 @@
 import upath from 'upath';
 import { mockDeep } from 'vitest-mock-extended';
-import { GlobalConfig } from '../../../config/global';
-import type { RepoGlobalConfig } from '../../../config/types';
-import { getPkgReleases as _getPkgReleases } from '../../datasource';
-import type { UpdateArtifactsConfig } from '../types';
-import { updateArtifacts } from '.';
-import { envMock, mockExecAll } from '~test/exec-util';
-import { env, fs, hostRules } from '~test/util';
+import { envMock, mockExecAll } from '~test/exec-util.ts';
+import { env, fs, hostRules } from '~test/util.ts';
+import { GlobalConfig } from '../../../config/global.ts';
+import type { RepoGlobalConfig } from '../../../config/types.ts';
+import type { ConstraintName } from '../../../util/exec/types.ts';
+import { getPkgReleases as _getPkgReleases } from '../../datasource/index.ts';
+import type { UpdateArtifactsConfig } from '../types.ts';
+import { updateArtifacts } from './index.ts';
 
-vi.mock('../../../util/exec/env');
-vi.mock('../../../util/fs');
-vi.mock('../../../util/host-rules', () => mockDeep());
-vi.mock('../../datasource', () => mockDeep());
+vi.mock('../../../util/exec/env.ts');
+vi.mock('../../../util/fs/index.ts');
+vi.mock('../../../util/host-rules.ts', () => mockDeep());
+vi.mock('../../datasource/index.ts', () => mockDeep());
 
 const getPkgReleases = vi.mocked(_getPkgReleases);
 
@@ -26,7 +27,7 @@ const adminConfig: RepoGlobalConfig = {
 process.env.CONTAINERBASE = 'true';
 
 const config: UpdateArtifactsConfig = {};
-const constraints: Record<string, string> = {
+const constraints: Partial<Record<ConstraintName, string>> = {
   erlang: '25.0.0.0',
   elixir: 'v1.13.4',
 };
@@ -143,7 +144,7 @@ describe('modules/manager/mix/artifacts', () => {
     GlobalConfig.set({
       ...adminConfig,
       binarySource: 'docker',
-      dockerSidecarImage: 'ghcr.io/containerbase/sidecar',
+      dockerSidecarImage: 'ghcr.io/renovatebot/base-image',
     });
     fs.readLocalFile.mockResolvedValueOnce('Old mix.lock');
     fs.getSiblingFileName.mockReturnValueOnce('mix.lock');
@@ -217,7 +218,7 @@ describe('modules/manager/mix/artifacts', () => {
     GlobalConfig.set({
       ...adminConfig,
       binarySource: 'docker',
-      dockerSidecarImage: 'ghcr.io/containerbase/sidecar',
+      dockerSidecarImage: 'ghcr.io/renovatebot/base-image',
     });
     fs.readLocalFile.mockResolvedValueOnce('Old mix.lock');
     fs.getSiblingFileName.mockReturnValueOnce('mix.lock');
@@ -478,7 +479,7 @@ describe('modules/manager/mix/artifacts', () => {
         config,
       }),
     ).toEqual([
-      { artifactError: { lockFile: 'mix.lock', stderr: 'not found' } },
+      { artifactError: { fileName: 'mix.lock', stderr: 'not found' } },
     ]);
   });
 
@@ -494,7 +495,7 @@ describe('modules/manager/mix/artifacts', () => {
         config,
       }),
     ).toEqual([
-      { artifactError: { lockFile: 'mix.lock', stderr: 'exec-error' } },
+      { artifactError: { fileName: 'mix.lock', stderr: 'exec-error' } },
     ]);
   });
 
@@ -512,7 +513,7 @@ describe('modules/manager/mix/artifacts', () => {
     ).toEqual([
       {
         artifactError: {
-          lockFile: 'mix.lock',
+          fileName: 'mix.lock',
           stderr: 'Error reading mix.lock',
         },
       },
@@ -536,7 +537,7 @@ describe('modules/manager/mix/artifacts', () => {
     ).toEqual([
       {
         artifactError: {
-          lockFile: 'mix.lock',
+          fileName: 'mix.lock',
           stderr: 'Error reading mix.lock',
         },
       },

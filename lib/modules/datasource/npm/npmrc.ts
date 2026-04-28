@@ -1,17 +1,16 @@
-import url from 'node:url';
 import { isNonEmptyString, isString } from '@sindresorhus/is';
 import ini from 'ini';
-import { GlobalConfig } from '../../../config/global';
-import type { PackageRule } from '../../../config/types';
-import { logger } from '../../../logger';
-import type { HostRule } from '../../../types';
-import { getEnv } from '../../../util/env';
-import * as hostRules from '../../../util/host-rules';
-import { regEx } from '../../../util/regex';
-import { fromBase64 } from '../../../util/string';
-import { ensureTrailingSlash, isHttpUrl } from '../../../util/url';
-import { defaultRegistryUrls } from './common';
-import type { NpmrcRules } from './types';
+import { GlobalConfig } from '../../../config/global.ts';
+import type { PackageRule } from '../../../config/types.ts';
+import { logger } from '../../../logger/index.ts';
+import type { HostRule } from '../../../types/index.ts';
+import { getEnv } from '../../../util/env.ts';
+import * as hostRules from '../../../util/host-rules.ts';
+import { regEx } from '../../../util/regex.ts';
+import { fromBase64 } from '../../../util/string.ts';
+import { ensureTrailingSlash, isHttpUrl } from '../../../util/url.ts';
+import { defaultRegistryUrl } from './common.ts';
+import type { NpmrcRules } from './types.ts';
 
 let npmrc: Record<string, any> = {};
 let npmrcRaw = '';
@@ -167,7 +166,7 @@ export function setNpmrc(input?: string): void {
 }
 
 export function resolveRegistryUrl(packageName: string): string {
-  let registryUrl = defaultRegistryUrls[0];
+  let registryUrl = defaultRegistryUrl;
   for (const rule of packageRules) {
     const { matchPackageNames, registryUrls } = rule;
     if (
@@ -185,8 +184,8 @@ export function resolvePackageUrl(
   registryUrl: string,
   packageName: string,
 ): string {
-  return url.resolve(
-    ensureTrailingSlash(registryUrl),
+  return new URL(
     encodeURIComponent(packageName).replace(regEx(/^%40/), '@'),
-  );
+    ensureTrailingSlash(registryUrl),
+  ).href;
 }

@@ -1,14 +1,18 @@
-import { logger } from '../../../logger';
-import { massage as massageToml, parse as parseToml } from '../../../util/toml';
-import { PythonVersionDatasource } from '../../datasource/python-version';
-import * as pep440 from '../../versioning/pep440';
+import { logger } from '../../../logger/index.ts';
+import type { ConstraintName } from '../../../util/exec/types.ts';
+import {
+  massage as massageToml,
+  parse as parseToml,
+} from '../../../util/toml.ts';
+import { PythonVersionDatasource } from '../../datasource/python-version/index.ts';
+import * as pep440 from '../../versioning/pep440/index.ts';
 import type {
   ExtractConfig,
   PackageDependency,
   PackageFileContent,
-} from '../types';
-import { processors } from './processors';
-import { PyProject } from './schema';
+} from '../types.ts';
+import { processors } from './processors/index.ts';
+import { PyProject } from './schema.ts';
 
 export function parsePyProject(
   content: string,
@@ -41,7 +45,7 @@ export async function extractPackageFile(
   const deps: PackageDependency[] = [];
 
   const pythonConstraint = def.project?.['requires-python'];
-  const extractedConstraints: Record<string, string> = {};
+  const extractedConstraints: Partial<Record<ConstraintName, string>> = {};
   if (pythonConstraint) {
     extractedConstraints.python = pythonConstraint;
     deps.push({

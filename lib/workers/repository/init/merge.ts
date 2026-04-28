@@ -4,45 +4,48 @@ import {
   isNonEmptyString,
   isString,
 } from '@sindresorhus/is';
-import { mergeChildConfig } from '../../../config';
-import { getConfigFileNames } from '../../../config/app-strings';
-import { decryptConfig } from '../../../config/decrypt';
-import { migrateAndValidate } from '../../../config/migrate-validate';
-import { migrateConfig } from '../../../config/migration';
-import { parseFileConfig } from '../../../config/parse';
-import * as presets from '../../../config/presets';
-import { applySecretsAndVariablesToConfig } from '../../../config/secrets';
-import type { AllConfig, RenovateConfig } from '../../../config/types';
-import * as configValidation from '../../../config/validation';
+import { getConfigFileNames } from '../../../config/app-strings.ts';
+import { decryptConfig } from '../../../config/decrypt.ts';
+import { mergeChildConfig } from '../../../config/index.ts';
+import { migrateAndValidate } from '../../../config/migrate-validate.ts';
+import { migrateConfig } from '../../../config/migration.ts';
+import { parseFileConfig } from '../../../config/parse.ts';
+import * as presets from '../../../config/presets/index.ts';
+import { applySecretsAndVariablesToConfig } from '../../../config/secrets.ts';
+import type { AllConfig, RenovateConfig } from '../../../config/types.ts';
+import * as configValidation from '../../../config/validation.ts';
 import {
   CONFIG_VALIDATION,
   REPOSITORY_CHANGED,
-} from '../../../constants/error-messages';
-import { logger } from '../../../logger';
-import * as npmApi from '../../../modules/datasource/npm';
-import { platform } from '../../../modules/platform';
-import { scm } from '../../../modules/platform/scm';
-import { ExternalHostError } from '../../../types/errors/external-host-error';
-import { getCache } from '../../../util/cache/repository';
-import { parseJson } from '../../../util/common';
-import { setUserEnv } from '../../../util/env';
-import { readLocalFile, readSystemFile } from '../../../util/fs';
-import * as hostRules from '../../../util/host-rules';
-import * as queue from '../../../util/http/queue';
-import * as throttle from '../../../util/http/throttle';
-import { maskToken } from '../../../util/mask';
-import { regEx } from '../../../util/regex';
-import { getOnboardingConfig } from '../onboarding/branch/config';
+} from '../../../constants/error-messages.ts';
+import { logger } from '../../../logger/index.ts';
+import * as npmApi from '../../../modules/datasource/npm/index.ts';
+import { platform } from '../../../modules/platform/index.ts';
+import { scm } from '../../../modules/platform/scm.ts';
+import { ExternalHostError } from '../../../types/errors/external-host-error.ts';
+import { coerceArray } from '../../../util/array.ts';
+import { getCache } from '../../../util/cache/repository/index.ts';
+import { getInheritedOrGlobal, parseJson } from '../../../util/common.ts';
+import { setUserEnv } from '../../../util/env.ts';
+import { readLocalFile, readSystemFile } from '../../../util/fs/index.ts';
+import * as hostRules from '../../../util/host-rules.ts';
+import * as queue from '../../../util/http/queue.ts';
+import * as throttle from '../../../util/http/throttle.ts';
+import { maskToken } from '../../../util/mask.ts';
+import { coerceObject } from '../../../util/object.ts';
+import { regEx } from '../../../util/regex.ts';
+import { coerceString } from '../../../util/string.ts';
+import { getOnboardingConfig } from '../onboarding/branch/config.ts';
 import {
   getOnboardingConfigFromCache,
   getOnboardingFileNameFromCache,
   setOnboardingConfigDetails,
-} from '../onboarding/branch/onboarding-branch-cache';
+} from '../onboarding/branch/onboarding-branch-cache.ts';
 import {
   OnboardingState,
   getDefaultConfigFileName,
-} from '../onboarding/common';
-import type { RepoFileConfig } from './types';
+} from '../onboarding/common.ts';
+import type { RepoFileConfig, RepositoryWorkerConfig } from './types.ts';
 
 export async function detectConfigFile(): Promise<string | null> {
   const fileList = await scm.getFileList();
@@ -103,7 +106,7 @@ export async function detectRepoFileConfig(
   if (OnboardingState.onboardingCacheValid) {
     configFileName = getOnboardingFileNameFromCache();
   } else {
-    configFileName = (await detectConfigFile()) ?? undefined;
+    configFileName = coerceString(await detectConfigFile());
   }
 
   if (!configFileName) {
@@ -184,34 +187,74 @@ export function checkForRepoConfigError(repoConfig: RepoFileConfig): void {
 
 // Check for repository config
 export async function mergeRenovateConfig(
-  config: RenovateConfig,
+  config: RepositoryWorkerConfig,
   branchName?: string,
 ): Promise<RenovateConfig> {
-  let returnConfig = { ...config };
+  let returnConfig: RepositoryWorkerConfig = { ...config };
   let repoConfig: RepoFileConfig = {};
-  if (config.requireConfig !== 'ignored') {
+  if (getInheritedOrGlobal('requireConfig') !== 'ignored') {
     repoConfig = await detectRepoFileConfig(branchName);
   }
   if (!repoConfig.configFileParsed && config.mode === 'silent') {
     logger.debug(
       'When mode=silent and repo has no config file, we use the onboarding config as repo config',
     );
-    const configFileName = getDefaultConfigFileName(config);
+    const configFileName = getDefaultConfigFileName();
     repoConfig = {
       configFileName,
       configFileParsed: await getOnboardingConfig(config),
     };
   }
-  const configFileParsed = repoConfig?.configFileParsed ?? {};
+  const configFileParsed = coerceObject(repoConfig?.configFileParsed);
   const resolvedRepoConfig = await resolveStaticRepoConfig(
     configFileParsed,
     process.env.RENOVATE_X_STATIC_REPO_CONFIG_FILE,
   );
 
+  // Apply the repositories[] object-entry config between global config and
+  // repository file config.
+  // Must run after repository file config is loaded so its `ignorePresets` can
+  // be included when resolving object-entry presets.
+  const repoEntryConfig = returnConfig.repositoryEntryConfig;
+  delete returnConfig.repositoryEntryConfig;
+
+  if (isNonEmptyObject(repoEntryConfig)) {
+    const repoEntry = repoEntryConfig as RenovateConfig;
+    const toResolve: RenovateConfig = {
+      ...repoEntry,
+      extends: [
+        ...coerceArray(returnConfig.extends),
+        ...coerceArray(repoEntry.extends),
+      ],
+      ignorePresets: [
+        ...coerceArray(returnConfig.ignorePresets),
+        ...coerceArray(repoEntry.ignorePresets),
+        ...coerceArray(resolvedRepoConfig.ignorePresets),
+      ],
+    };
+    delete returnConfig.extends;
+
+    const { config: resolvedRepoEntry } = await presets.resolveConfigPresets(
+      toResolve,
+      config,
+    );
+
+    applyNpmrc(resolvedRepoEntry, 'resolvedRepoEntry');
+
+    const resolvedRepoEntryWithSecrets = applySecretsAndVariablesToConfig({
+      config: resolvedRepoEntry,
+      secrets: config.secrets,
+      variables: config.variables,
+    });
+
+    applyHostRules(resolvedRepoEntryWithSecrets);
+    returnConfig = mergeChildConfig(returnConfig, resolvedRepoEntryWithSecrets);
+  }
+
   if (isNonEmptyArray(returnConfig.extends)) {
     resolvedRepoConfig.extends = [
-      ...returnConfig.extends,
-      ...(resolvedRepoConfig.extends ?? []),
+      ...coerceArray(returnConfig.extends),
+      ...coerceArray(resolvedRepoConfig.extends),
     ];
     delete returnConfig.extends;
   }
@@ -229,7 +272,7 @@ export async function mergeRenovateConfig(
   }
   if (migratedConfig.warnings) {
     returnConfig.warnings = [
-      ...(returnConfig.warnings ?? []),
+      ...coerceArray(returnConfig.warnings),
       ...migratedConfig.warnings,
     ];
   }
@@ -239,21 +282,14 @@ export async function mergeRenovateConfig(
   const repository = config.repository!;
   // Decrypt before resolving in case we need npm authentication for any presets
   const decryptedConfig = await decryptConfig(migratedConfig, repository);
-  setNpmTokenInNpmrc(decryptedConfig);
-  // istanbul ignore if
-  if (isString(decryptedConfig.npmrc)) {
-    logger.debug('Found npmrc in decrypted config - setting');
-    npmApi.setNpmrc(decryptedConfig.npmrc);
-  }
+  applyNpmrc(decryptedConfig, 'decrypted');
   // Decrypt after resolving in case the preset contains npm authentication instead
-  let resolvedConfig = await decryptConfig(
-    await presets.resolveConfigPresets(
-      decryptedConfig,
-      config,
-      config.ignorePresets,
-    ),
-    repository,
+  const { config: configToDecrypt } = await presets.resolveConfigPresets(
+    decryptedConfig,
+    config,
+    config.ignorePresets,
   );
+  let resolvedConfig = await decryptConfig(configToDecrypt, repository);
   logger.trace({ config: resolvedConfig }, 'resolved config');
   const migrationResult = migrateConfig(resolvedConfig);
   if (migrationResult.isMigrated) {
@@ -261,46 +297,30 @@ export async function mergeRenovateConfig(
     logger.trace({ config: resolvedConfig }, 'resolved config after migrating');
     resolvedConfig = migrationResult.migratedConfig;
   }
-  setNpmTokenInNpmrc(resolvedConfig);
-  // istanbul ignore if
   if (isString(resolvedConfig.npmrc)) {
     logger.debug(
       'Ignoring any .npmrc files in repository due to configured npmrc',
     );
-    npmApi.setNpmrc(resolvedConfig.npmrc);
   }
+  applyNpmrc(resolvedConfig, 'resolved');
   resolvedConfig = applySecretsAndVariablesToConfig({
     config: resolvedConfig,
     secrets: mergeChildConfig(
-      config.secrets ?? {},
-      resolvedConfig.secrets ?? {},
+      coerceObject(config.secrets),
+      coerceObject(resolvedConfig.secrets),
     ),
     variables: mergeChildConfig(
-      config.variables ?? {},
-      resolvedConfig.variables ?? {},
+      coerceObject(config.variables),
+      coerceObject(resolvedConfig.variables),
     ),
   });
 
-  // istanbul ignore if
-  if (resolvedConfig.hostRules) {
-    logger.debug('Setting hostRules from config');
-    for (const rule of resolvedConfig.hostRules) {
-      try {
-        hostRules.add(rule);
-      } catch (err) {
-        logger.warn(
-          { err, config: rule },
-          'Error setting hostRule from config',
-        );
-      }
-    }
-    // host rules can change concurrency
-    queue.clear();
-    throttle.clear();
-    delete resolvedConfig.hostRules;
-  }
+  applyHostRules(resolvedConfig);
   returnConfig = mergeChildConfig(returnConfig, resolvedConfig);
-  returnConfig = await presets.resolveConfigPresets(returnConfig, config);
+  ({ config: returnConfig } = await presets.resolveConfigPresets(
+    returnConfig,
+    config,
+  ));
   returnConfig.renovateJsonPresent = true;
   // istanbul ignore if
   if (returnConfig.ignorePaths?.length) {
@@ -314,6 +334,39 @@ export async function mergeRenovateConfig(
   delete returnConfig.env;
 
   return returnConfig;
+}
+
+export function applyNpmrc(
+  config: RenovateConfig,
+  configType?: 'resolved' | 'resolvedRepoEntry' | 'decrypted',
+): void {
+  setNpmTokenInNpmrc(config);
+  if (!isString(config.npmrc)) {
+    return;
+  }
+  logger.debug(
+    `Setting npmrc from ${configType ? `${configType} ` : ''}config`,
+  );
+  npmApi.setNpmrc(config.npmrc);
+}
+
+export function applyHostRules(config: RenovateConfig): void {
+  if (!config.hostRules) {
+    return;
+  }
+
+  logger.debug('Setting hostRules from config');
+  for (const rule of config.hostRules) {
+    try {
+      hostRules.add(rule);
+    } catch (err) {
+      logger.warn({ err, config: rule }, 'Error setting hostRule from config');
+    }
+  }
+  // host rules can change concurrency
+  queue.clear();
+  throttle.clear();
+  delete config.hostRules;
 }
 
 /** needed when using portal secrets for npmToken */
@@ -417,7 +470,10 @@ export function mergeStaticConfig(
 ): AllConfig {
   // merge extends
   if (isNonEmptyArray(staticRepoConfig.extends)) {
-    config.extends = [...staticRepoConfig.extends, ...(config.extends ?? [])];
+    config.extends = [
+      ...staticRepoConfig.extends,
+      ...coerceArray(config.extends),
+    ];
     delete staticRepoConfig.extends;
   }
 

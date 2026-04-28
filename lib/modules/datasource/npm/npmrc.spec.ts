@@ -1,13 +1,14 @@
 import ini from 'ini';
-import { GlobalConfig } from '../../../config/global';
-import * as _sanitize from '../../../util/sanitize';
+import { GlobalConfig } from '../../../config/global.ts';
+import * as _sanitize from '../../../util/sanitize.ts';
+import { defaultRegistryUrl } from './common.ts';
 import {
   convertNpmrcToRules,
   getMatchHostFromNpmrcHost,
   setNpmrc,
-} from './npmrc';
+} from './npmrc.ts';
 
-vi.mock('../../../util/sanitize');
+vi.mock('../../../util/sanitize.ts');
 
 const sanitize = vi.mocked(_sanitize);
 
@@ -31,8 +32,8 @@ describe('modules/datasource/npm/npmrc', () => {
     });
 
     it('parses https://host', () => {
-      expect(getMatchHostFromNpmrcHost('https://registry.npmjs.org')).toBe(
-        'https://registry.npmjs.org',
+      expect(getMatchHostFromNpmrcHost(defaultRegistryUrl)).toBe(
+        defaultRegistryUrl,
       );
     });
   });

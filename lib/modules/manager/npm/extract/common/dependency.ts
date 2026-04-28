@@ -1,17 +1,19 @@
 import { isString } from '@sindresorhus/is';
 import validateNpmPackageName from 'validate-npm-package-name';
-import { logger } from '../../../../../logger';
-import { regEx } from '../../../../../util/regex';
-import { GithubTagsDatasource } from '../../../../datasource/github-tags';
-import { NodeVersionDatasource } from '../../../../datasource/node-version';
-import { NpmDatasource } from '../../../../datasource/npm';
+import { logger } from '../../../../../logger/index.ts';
+import type { ConstraintName } from '../../../../../util/exec/types.ts';
+import { isConstraintName } from '../../../../../util/exec/types.ts';
+import { regEx } from '../../../../../util/regex.ts';
+import { GithubTagsDatasource } from '../../../../datasource/github-tags/index.ts';
+import { NodeVersionDatasource } from '../../../../datasource/node-version/index.ts';
+import { NpmDatasource } from '../../../../datasource/npm/index.ts';
 import {
   api,
   isValid,
   isVersion,
   id as npmVersioningId,
-} from '../../../../versioning/npm';
-import type { PackageDependency } from '../../../types';
+} from '../../../../versioning/npm/index.ts';
+import type { PackageDependency } from '../../../types.ts';
 
 const RE_REPOSITORY_GITHUB_SSH_FORMAT = regEx(
   /(?:git@)github.com:([^/]+)\/([^/.]+)(?:\.git)?/,
@@ -205,14 +207,21 @@ export function extractDependency(
 
 export function getExtractedConstraints(
   deps: PackageDependency[],
-): Record<string, string> {
-  const extractedConstraints: Record<string, string> = {};
-  const constraints = ['node', 'yarn', 'npm', 'pnpm', 'vscode'];
+): Partial<Record<ConstraintName, string>> {
+  const extractedConstraints: Partial<Record<ConstraintName, string>> = {};
+  const constraints: ConstraintName[] = [
+    'node',
+    'yarn',
+    'npm',
+    'pnpm',
+    'vscode',
+  ];
   for (const dep of deps) {
     if (
       !dep.skipReason &&
       (dep.depType === 'engines' || dep.depType === 'packageManager') &&
       dep.depName &&
+      isConstraintName(dep.depName) &&
       constraints.includes(dep.depName) &&
       isString(dep.currentValue)
     ) {

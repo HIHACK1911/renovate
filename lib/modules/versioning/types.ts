@@ -1,5 +1,5 @@
 import type { SemVer } from 'semver';
-import type { RangeStrategy } from '../../types';
+import type { RangeStrategy } from '../../types/index.ts';
 
 export interface NewValueConfig {
   currentValue: string;
@@ -7,6 +7,12 @@ export interface NewValueConfig {
   currentVersion?: string;
   newVersion: string;
   isReplacement?: boolean;
+  /**
+   * All versions numbers that this given Release has.
+   *
+   * Allows Versioning modules to determine whether the version they're proposing matches a known version.
+   */
+  allVersions?: Set<string>;
 }
 export interface VersioningApi {
   // validation

@@ -1,10 +1,11 @@
 import { isEmptyArray, isEmptyObject } from '@sindresorhus/is';
-import { z } from 'zod';
-import { filterMap } from '../../../util/filter-map';
-import { newlineRegex } from '../../../util/regex';
-import { LooseArray } from '../../../util/schema-utils';
-import { MaybeTimestamp } from '../../../util/timestamp';
-import type { Release } from '../types';
+import { z } from 'zod/v3';
+import type { ConstraintName } from '../../../util/exec/types.ts';
+import { filterMap } from '../../../util/filter-map.ts';
+import { newlineRegex } from '../../../util/regex.ts';
+import { LooseArray } from '../../../util/schema-utils/index.ts';
+import { MaybeTimestamp } from '../../../util/timestamp.ts';
+import type { Release } from '../types.ts';
 
 export const MarshalledVersionInfo = LooseArray(
   z
@@ -58,7 +59,7 @@ export const GemVersions = LooseArray(
         metadata,
       }): Release => {
         const result: Release = { version, releaseTimestamp };
-        const constraints: Record<string, string[]> = {};
+        const constraints: Partial<Record<ConstraintName, string[]>> = {};
 
         if (platform) {
           constraints.platform = [platform];

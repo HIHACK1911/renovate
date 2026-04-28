@@ -1,31 +1,31 @@
-# syntax=docker/dockerfile:1.20.0@sha256:26147acbda4f14c5add9946e2fd2ed543fc402884fd75146bd342a7f6271dc1d
+# syntax=docker/dockerfile:1.23.0@sha256:2780b5c3bab67f1f76c781860de469442999ed1a0d7992a5efdf2cffc0e3d769
 
 ARG BASE_IMAGE_TYPE=slim
 
 # --------------------------------------
 # slim image
 # --------------------------------------
-FROM ghcr.io/renovatebot/base-image:12.13.4@sha256:185765f13fb665fb61c81736eda44996db8ad7af7605fe62712c54235348b4c7 AS slim-base
+FROM ghcr.io/renovatebot/base-image:13.41.0@sha256:2d2c20e460c7f279fe505e07ea6110b5667852db7b37804a197ac457c61c131c AS slim-base
 
 # --------------------------------------
 # full image
 # --------------------------------------
-FROM ghcr.io/renovatebot/base-image:12.13.4-full@sha256:30a3506dda955ce289cdf78d6f7f8a54dfd0b490d530bb8ead6b3f0fdf3620e7 AS full-base
+FROM ghcr.io/renovatebot/base-image:13.41.0-full@sha256:e3c88ce1465c16d613cfa71a44559576c79210a6e040c708f665d735eee35400 AS full-base
 
 ENV RENOVATE_BINARY_SOURCE=global
 
 # --------------------------------------
 # build image
 # --------------------------------------
-FROM --platform=$BUILDPLATFORM ghcr.io/renovatebot/base-image:12.13.4@sha256:185765f13fb665fb61c81736eda44996db8ad7af7605fe62712c54235348b4c7 AS build
+FROM --platform=$BUILDPLATFORM ghcr.io/renovatebot/base-image:13.41.0@sha256:2d2c20e460c7f279fe505e07ea6110b5667852db7b37804a197ac457c61c131c AS build
 
 # We want a specific node version here
 # renovate: datasource=github-releases packageName=containerbase/node-prebuild versioning=node
-RUN install-tool node 24.11.1
+RUN install-tool node 24.15.0
 
 # corepack is too buggy 😞
 # renovate: datasource=npm
-RUN install-tool pnpm 10.24.0
+RUN install-tool pnpm 10.33.0
 
 WORKDIR /usr/local/renovate
 
@@ -64,6 +64,7 @@ ENV npm_config_arch=${ARCH} npm_config_platform_arch=${ARCH}
 COPY --link .npmrc ./
 COPY --link patches ./patches
 COPY --link pnpm-lock.yaml ./
+COPY --link pnpm-workspace.yaml ./
 
 # only fetch deps from lockfile https://pnpm.io/cli/fetch
 RUN set -ex; \

@@ -1,4 +1,4 @@
-import type { FindPRConfig } from '../types';
+import type { FindPRConfig } from '../types.ts';
 
 export interface GerritFindPRConfig extends FindPRConfig {
   label?: string;
@@ -103,6 +103,7 @@ export interface GerritRevisionInfo {
   uploader: GerritAccountInfo;
   /** The Git reference for the patch set. */
   ref: string;
+  created: string;
   /** Requires o=CURRENT_ACTIONS. */
   actions?: Record<string, GerritActionInfo>;
   /** Requires o=COMMIT_FOOTERS. */
@@ -142,4 +143,9 @@ export interface GerritMergeableInfo {
     | 'MERGE_ALWAYS'
     | 'CHERRY_PICK';
   mergeable: boolean;
+}
+
+export interface GerritHashtagsInput {
+  add?: string[] | null;
+  remove?: string[] | null;
 }
